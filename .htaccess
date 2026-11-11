@@ -1,0 +1,13 @@
+# Redirect all requests to public/
+RewriteEngine On
+RewriteRule ^(?!public/)(.*)$ public/$1 [L,QSA]
+
+# Block access to hidden files and directories (Apache 2.4)
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# Block access to sensitive file extensions (Apache 2.4)
+<FilesMatch "\.(sql|md|json|lock|log|env|bak|old|tmp)$">
+    Require all denied
+</FilesMatch>

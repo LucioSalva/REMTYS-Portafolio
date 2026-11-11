@@ -1,0 +1,53 @@
+%% REMTYS — Subdiagrama: Alta de trámite + Evaluación de requisitos
+flowchart TD
+    A([contribuyente/tramites]) --> B[Click Nuevo trámite]
+    B --> C[GET nuevo_tramite<br/>SELECT tipos_tramite.activo<br/>SELECT predios vinculados]
+    C --> D[POST nuevo_tramite<br/>verificarCSRF]
+    D --> E{Ownership predio?<br/>predio_contribuyente<br/>activo=TRUE}
+    E -->|No| F[Flash: sin acceso]
+    F --> B
+    E -->|Sí| G{tipo_tramite_id<br/>válido?}
+    G -->|No| F
+    G -->|Sí| H[ExpedienteService.<br/>crearExpedienteConTramite]
+    H --> I[BEGIN TX]
+    I --> J[(nextval seq_expediente_num<br/>INSERT expedientes<br/>num EXP-AAAA-######<br/>estado='abierto')]
+    J --> K[(INSERT historial_expediente<br/>evento='CREACION')]
+    K --> L[(nextval seq_tramite_num<br/>INSERT tramites<br/>num TRM-AAAA-######<br/>estado='iniciado')]
+    L --> M[COMMIT]
+    M --> N[Redirect requisitos_tramite<br/>id=tramite_id]
+
+    %% ---- REQUISITOS ----
+    N --> O[RequisitosService.<br/>evaluarRequisitos<br/>tramiteId, contribId, expId]
+    O --> P[(SELECT requisitos_documentales<br/>JOIN tipos_documento<br/>JOIN tramites tipo_tramite)]
+    P --> Q[(SELECT documentos<br/>contrib + es_version_activa<br/>JOIN tipos_documento)]
+    Q --> R[Indexar docs por<br/>tipo_documento_id]
+    R --> S{Loop requisitos}
+    S --> T{docs para ese tipo?}
+    T -->|No| U{flags del requisito}
+    U -->|especifico_tramite| U1[ESPECIFICO<br/>badge vino]
+    U -->|exclusivo_expediente| U2[EXCLUSIVO<br/>badge negro]
+    U -->|default| U3[FALTANTE<br/>badge gris]
+    T -->|Sí, iterar docs| V[clasificacionCandidata]
+    V --> V1{exclusivo_expediente_id<br/>pertenece a otro exp?}
+    V1 -->|Sí| V1b[descartar doc]
+    V1 -->|No| V2{estado = rechazado?}
+    V2 -->|Sí| V2b[INVALIDO rank=20]
+    V2 -->|No| V3{requiere_vigencia<br/>y fecha_vigencia < HOY?}
+    V3 -->|Sí| V3b[VENCIDO rank=40]
+    V3 -->|No| V4{estado pendiente<br/>o en_revision?}
+    V4 -->|Sí| V4b[PENDIENTE rank=70]
+    V4 -->|No| V5{estado aprobado +<br/>no exclusividad<br/>conflictiva?}
+    V5 -->|Mismo exp / libre| V5a[CUMPLE rank=100]
+    V5 -->|Otro exp pero<br/>reutilizable| V5b[REUTILIZABLE rank=90]
+    V5 -->|No| V5c[descartar]
+    V1b & V2b & V3b & V4b & V5a & V5b & V5c --> W[Elegir mejor por rank<br/>CUMPLE corta loop]
+    W --> X{mejor encontrado?}
+    X -->|No| U
+    X -->|Sí| Y[resultado clasificacion,<br/>documento,<br/>puede_reutilizar,<br/>requiere_subir]
+    U1 & U2 & U3 & Y --> S
+    S -->|fin| Z[calcularCompletitud<br/>aprobados, en_revision,<br/>cargados, vencidos,<br/>invalidos, faltantes,<br/>%aprobado, %cargado,<br/>listo_para_envio]
+    Z --> AA{¿listo_para_envio?}
+    AA -->|Sí| AB[Habilitar Enviar a revisión<br/>UPDATE tramites='en_revision'<br/>historial: ENVIO]
+    AA -->|No| AC[Mostrar faltantes<br/>con acción Subir]
+    AB --> AD([Fin sub-flujo<br/>Pasa a bandeja admin])
+    AC --> AE([Subir documento])

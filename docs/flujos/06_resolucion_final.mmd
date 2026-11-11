@@ -1,0 +1,17 @@
+%% REMTYS — Subdiagrama: Resolución final / Dictamen
+flowchart TD
+    A([Admin en ver_tramite<br/>todos obligatorios aprobados]) --> B{Acción final}
+    B -->|Aprobar| C[editar_tramite<br/>estado='aprobado']
+    B -->|Rechazar| D[editar_tramite<br/>estado='rechazado']
+    B -->|Cancelar| E[editar_tramite<br/>estado='cancelado']
+    C & D & E --> F[(UPDATE tramites<br/>SET estado, resuelto_at=NOW)]
+    F --> G[(ExpedienteService.<br/>registrarHistorial<br/>evento='DICTAMEN'<br/>desc=resultado)]
+    G --> H{Todos los trámites<br/>del expediente resueltos?}
+    H -->|Sí| I[(UPDATE expedientes<br/>estado='resuelto'/'cerrado')]
+    H -->|No| J[Expediente permanece<br/>en 'en_proceso']
+    I & J --> K[Contribuyente ve<br/>estado final en tramites<br/>y ver_expediente]
+    K --> L{Documento resolutivo<br/>generado?}
+    L -->|Sí futuro| M[(INSERT documentos<br/>tipo=RESOLUTIVO<br/>uso='evidencia')]
+    L -->|No| N[Fin]
+    M --> N
+    N --> O([Auditoría:<br/>TRAMITE_DICTAMINADO])

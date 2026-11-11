@@ -1,0 +1,81 @@
+%% REMTYS — Subdiagrama: Registro + Verificación de correo + Login
+flowchart TD
+    A([Inicio]) --> B{Sesión activa?}
+    B -->|Sí| Z1[Redirect /]
+    B -->|No| C{Acción}
+    C -->|Registro| D[GET auth/registro<br/>render formulario]
+    C -->|Login| L1[GET auth/login]
+    C -->|Verificar| V1[GET verificar_email<br/>token en URL]
+    C -->|Reenviar| R1[POST reenviar_verificacion]
+
+    %% --- REGISTRO ---
+    D --> D1[POST procesar_registro<br/>verificarCSRF]
+    D1 --> D2{Rate limit<br/><= 5 / 10 min}
+    D2 -->|Excedido| D
+    D2 -->|OK| D3{Sanitizar +<br/>validar:<br/>nombre 3-400,<br/>email,<br/>password fuerte,<br/>RFC formato,<br/>CP 5 dígitos,<br/>detalle fisica/moral}
+    D3 -->|Errores| D4[Renderiza con mensaje]
+    D4 --> D
+    D3 -->|OK| D5{SELECT usuarios<br/>por email}
+    D5 -->|Existe verificado| D4
+    D5 -->|Existe no verif| D4b[Mensaje: reenviar]
+    D5 -->|No existe| D6{SELECT contribuyentes<br/>por RFC}
+    D6 -->|Duplicado| D4
+    D6 -->|OK| D7[BEGIN TX]
+    D7 --> D8[(INSERT usuarios<br/>bcrypt cost=12,<br/>rol=contribuyente,<br/>email_verificado=FALSE,<br/>token_hash sha256,<br/>expires_at=+N horas)]
+    D8 --> D9[(INSERT contribuyentes +<br/>guardarDetalleContribuyente<br/>fisica/moral)]
+    D9 --> D10[COMMIT<br/>audit: USER_REGISTERED]
+    D10 --> D11[enviarCorreoVerificacion<br/>URL con token]
+    D11 -->|OK| D12[Flash éxito]
+    D11 -->|Fallo| D13[Flash warning<br/>audit: EMAIL_FAILED]
+    D12 & D13 --> L1
+
+    %% --- VERIFICACIÓN ---
+    V1 --> V2{token regex<br/>^[a-f0-9]64}
+    V2 -->|No| L1
+    V2 -->|Sí| V3[(SELECT por<br/>email_verificacion_token_hash<br/>= sha256 token)]
+    V3 -->|No existe| L1
+    V3 -->|Ya verificado| L1
+    V3 -->|Expirado| V4[(UPDATE clear token<br/>audit: TOKEN_EXPIRED)]
+    V4 --> L1
+    V3 -->|Válido| V5[(UPDATE email_verificado=TRUE<br/>email_verificado_at=NOW<br/>clear token<br/>audit: EMAIL_VERIFIED)]
+    V5 --> L1
+
+    %% --- LOGIN ---
+    L1 --> L2[POST procesar_login<br/>verificarCSRF]
+    L2 --> L3{Rate limit<br/><= 20 / 15 min<br/>por IP}
+    L3 -->|Excedido| L1
+    L3 -->|OK| L4{Email + password<br/>no vacíos?}
+    L4 -->|No| L1
+    L4 -->|Sí| L5[(obtenerUsuarioPorEmail<br/>activo=TRUE<br/>JOIN contribuyentes)]
+    L5 -->|No existe| L6[audit: USUARIO_NO_ENCONTRADO<br/>mensaje genérico]
+    L6 --> L1
+    L5 -->|Existe| L7{bloqueado_hasta<br/>> NOW?}
+    L7 -->|Sí| L8[audit: CUENTA_BLOQUEADA<br/>mensaje: espere]
+    L8 --> L1
+    L7 -->|No| L9{password_verify<br/>bcrypt?}
+    L9 -->|No| L10[intentos_fallidos++<br/>si >= 5:<br/>bloqueado_hasta=+30min<br/>reset intentos<br/>generarAlerta]
+    L10 --> L1
+    L9 -->|Sí| L11{email_verificado?}
+    L11 -->|No| L12[Mostrar login con<br/>link de reenvío]
+    L12 --> R1
+    L11 -->|Sí| L13[(UPDATE reset intentos<br/>+ ultimo_acceso=NOW)]
+    L13 --> L14[session_regenerate_id<br/>SESSION rol, contrib_id<br/>audit: LOGIN_EXITOSO]
+    L14 --> L15{Rol}
+    L15 -->|contribuyente| CTR[/contribuyente/dashboard/]
+    L15 -->|admin/revisor/supergod| ADM[/admin/dashboard/]
+
+    %% --- REENVÍO ---
+    R1 --> R2{CSRF + email válido}
+    R2 -->|No| L1
+    R2 -->|Sí| R3[(SELECT usuario)]
+    R3 -->|No existe / ya verif| L1
+    R3 -->|Pendiente| R4{segundosRestantesReenvio<br/>> 0?}
+    R4 -->|Sí, throttle| L1
+    R4 -->|No| R5[(renovarVerificacionCorreo<br/>nuevo token,<br/>expires_at,<br/>ultimo_envio=NOW)]
+    R5 --> R6[enviarCorreoVerificacion]
+    R6 --> L1
+
+    classDef sec fill:#fdebd0,stroke:#b9770e
+    classDef db fill:#e8daef,stroke:#6c3483
+    class L2,L3,D1,D2,R2 sec
+    class D8,D9,V5,L13,R5 db

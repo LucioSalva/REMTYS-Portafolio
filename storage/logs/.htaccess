@@ -1,0 +1,2 @@
+# Apache 2.4 — deny all direct access to log files
+Require all denied

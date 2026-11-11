@@ -1,0 +1,23 @@
+# Front controller - route all requests through index.php
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L,QSA]
+
+# Prevent directory listing
+Options -Indexes
+
+# Security headers via Apache (backup for PHP headers)
+<IfModule mod_headers.c>
+    Header set X-Frame-Options "DENY"
+    Header set X-Content-Type-Options "nosniff"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+</IfModule>
+
+# Hide server version information
+ServerSignature Off
+<IfModule mod_headers.c>
+    Header unset X-Powered-By
+    Header unset Server
+</IfModule>

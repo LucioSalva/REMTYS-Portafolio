@@ -1,0 +1,129 @@
+# ============================================================
+# REMTYS APP — docker-compose.prod.yml
+# PRODUCTION ONLY — NO bind mounts, NO exposed DB port
+# Nginx reverse proxy with TLS termination
+# Secrets via .env file — see .env.example for reference
+# ============================================================
+
+services:
+
+  # ────────────────────────────────────────────────
+  # Nginx Reverse Proxy (TLS termination)
+  # Only externally-exposed service: ports 80 and 443
+  # ────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: remtys_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/certs:/etc/nginx/certs:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx-health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - remtys_net
+
+  # ────────────────────────────────────────────────
+  # Servicio PHP + Apache (produccion)
+  # NO ports exposed — only reachable via nginx on internal net
+  # ────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: remtys_app
+    restart: unless-stopped
+    # NO ports: — only nginx proxies to this service internally
+    environment:
+      DB_HOST: db
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:?DB_NAME is required}
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASS: ${DB_PASS:?DB_PASS is required}
+      APP_URL: ${APP_URL:?APP_URL is required}
+      APP_ENV: production
+    volumes:
+      # Solo persistencia de uploads/logs — NO bind mount de codigo
+      - remtys_storage:/var/www/html/remtysapp/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/remtysapp/public/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - remtys_net
+
+  # ────────────────────────────────────────────────
+  # Servicio PostgreSQL 17 (produccion)
+  # SIN puerto expuesto al host — solo accesible via red interna
+  # ────────────────────────────────────────────────
+  db:
+    image: postgres:17
+    container_name: remtys_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASS:?DB_PASS is required}
+    # NO ports: — la BD solo es accesible dentro de remtys_net
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Init scripts solo se ejecutan la primera vez que se crea el volumen
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seeds.sql:/docker-entrypoint-initdb.d/02-seeds.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-remtys_app} -d ${DB_NAME:-remtys2_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - remtys_net
+
+volumes:
+  postgres_data:
+  remtys_storage:
+
+networks:
+  remtys_net:
+    driver: bridge

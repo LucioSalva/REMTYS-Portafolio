@@ -1,0 +1,89 @@
+# =============================================================================
+# REMTYS — .gitignore (hardened)
+# =============================================================================
+
+# --- Dependencies ---
+node_modules/
+/vendor/
+composer.lock
+
+# --- Secrets & environment ---
+.env
+.env.*
+!.env.example
+config/database.local.php
+config/mail.local.php
+config/*.local.php
+secrets/
+*.pem
+*.key
+!docker/certs/README*
+
+# --- Uploaded files (user data — never commit) ---
+storage/uploads/*
+!storage/uploads/.gitkeep
+
+# --- Logs & diagnostic artifacts ---
+*.log
+error_log
+storage/logs/*
+!storage/logs/.gitkeep
+!storage/logs/.htaccess
+scripts/*.log
+
+# --- Backups ---
+backups/
+!backups/.gitkeep
+*.sql.gz
+*.tar.gz
+
+# --- PHP artifacts ---
+.phpunit.result.cache
+.phpunit.cache/
+.phpstan.cache/
+.psalm/cache/
+phpstan-baseline.neon
+psalm-baseline.xml
+
+# --- OS artifacts ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- IDE files ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# --- Build / coverage ---
+coverage/
+.coverage/
+build/
+dist/
+
+# --- Tests scratch ---
+tests/_output/
+tests/.phpunit.result.cache
+
+# --- Misc ---
+*.bak
+*.tmp
+*.orig
+/tmp/
+
+# --- Datos y artefactos que nunca deben publicarse ---
+*.dump
+*.sql.bak
+*.pdf
+*.xlsx
+*.xls
+*.csv
+*.docx
+*.zip
+.claude/
+.agents/
+CLAUDE.md
+AGENTS.md

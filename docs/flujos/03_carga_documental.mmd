@@ -1,0 +1,60 @@
+%% REMTYS — Subdiagrama: Carga documental (subir_documento)
+flowchart TD
+    A([Click Subir en requisito]) --> B[GET subir_documento<br/>tramite_id, tipo_doc_id,<br/>expediente_id, padre_doc_id<br/>en query]
+    B --> C{tipo_doc_id válido<br/>y activo?}
+    C -->|No| C1[audit SECURITY<br/>flash error<br/>redirect]
+    C -->|Sí| D[Render formulario<br/>con tipoForzado +<br/>extensiones permitidas +<br/>max MB]
+
+    D --> E[POST subir_documento<br/>verificarCSRF]
+    E --> F{Rate limit<br/><= 20 / 5 min}
+    F -->|Excedido| F1[Flash error]
+    F1 --> B
+    F -->|OK| G[Fuente de verdad =<br/>GET > POST]
+    G --> G1{tipo_doc_id URL<br/>vs POST tipo_doc_forzado}
+    G1 -->|Discrepancia| G1a[error_log SECURITY<br/>domina URL]
+    G1 -->|OK| G2[expediente_id /<br/>tramite_id /<br/>padre_doc_id: URL domina]
+
+    G2 --> H{Ownership<br/>expedientes.contrib=cid?}
+    H -->|No| H1[Flash + redirect]
+    H -->|Sí| I{Ownership<br/>tramites expedientes?}
+    I -->|No| H1
+    I -->|Sí| J{Fechas emisión/<br/>vigencia válidas<br/>AAAA-MM-DD?}
+    J -->|No| J1[Flash + redirect]
+    J -->|Sí| K{tipo_documento_id<br/>no vacío?}
+    K -->|No| K1[Flash + redirect]
+    K -->|Sí| L[(SELECT tipos_documento<br/>activo=TRUE)]
+    L -->|No existe| L1[Flash + redirect]
+    L -->|OK| M{padre_doc_id?}
+    M -->|Sí| M1{Ownership padre?<br/>contrib=cid AND<br/>es_version_activa=TRUE}
+    M1 -->|No| L1
+    M1 -->|Sí| N
+    M -->|No| N[FILES archivo presente?]
+    N -->|No| N1[Flash error]
+    N -->|Sí| O[subirDocumento helper<br/>validación profunda]
+
+    O --> O1{error de upload<br/>UPLOAD_ERR_*?}
+    O1 -->|Sí| O1a[exito=false]
+    O1 -->|No| O2{tamaño<br/><= MAX_UPLOAD_BYTES<br/>20MB?}
+    O2 -->|No| O1a
+    O2 -->|Sí| O3{MIME real<br/>finfo vs extensión<br/>en extensiones_permitidas}
+    O3 -->|Mismatch| O1a
+    O3 -->|OK| O4[hash SHA-256<br/>nombre aleatorio +<br/>ext<br/>move_uploaded_file a<br/>storage/uploads]
+    O4 --> P{exito?}
+    O1a --> PF[Flash error específico]
+    PF --> B
+    P -->|Sí| Q[DocumentoService.<br/>registrarDocumento]
+
+    Q --> Q1{padre_documento_id?}
+    Q1 -->|Sí| Q1a[SELECT MAX version<br/>WHERE padre=X OR id=X<br/>version = max+1]
+    Q1 -->|No| Q1b[version = 1]
+    Q1a & Q1b --> Q2[(INSERT documentos<br/>es_version_activa=TRUE<br/>estado_validacion='pendiente'<br/>hash, size, mime)]
+    Q2 --> R{expediente_id?}
+    R -->|Sí| R1[(INSERT documento_expediente<br/>uso='requisito'<br/>ON CONFLICT DO NOTHING)]
+    R -->|No| S
+    R1 --> S[Flash éxito:<br/>pendiente de validación]
+    S --> T{tramite_id?}
+    T -->|Sí| T1[Redirect requisitos_tramite]
+    T -->|No| T2[Redirect documentos]
+
+    classDef sec fill:#fdebd0,stroke:#b9770e
+    class E,F,H,I,G1,M1 sec

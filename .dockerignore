@@ -1,0 +1,77 @@
+# =============================================================================
+# REMTYS — .dockerignore
+# Keep the image lean and FREE of secrets/dev artifacts.
+# =============================================================================
+
+# --- Version control ---
+.git
+.gitignore
+.gitattributes
+
+# --- Editors / tooling ---
+.claude
+.idea
+.vscode
+*.swp
+*.swo
+
+# --- Tests and analyzers (not needed at runtime) ---
+tests/
+phpunit.xml
+phpunit.xml.dist
+phpstan.neon
+phpstan.neon.dist
+psalm.xml
+.phpunit.cache/
+.phpstan.cache/
+coverage/
+
+# --- Dev-only DB artifacts ---
+database/node_modules
+database/package.json
+database/package-lock.json
+database/gen_doc.js
+database/remtys_db.sql
+database/portal_schema.sql
+database/*.docx
+
+# --- Backups / logs (NEVER bake into image) ---
+backups/
+storage/logs/*
+!storage/logs/.gitkeep
+*.log
+error_log
+
+# --- Uploads (runtime volume, never image) ---
+storage/uploads/*
+!storage/uploads/.gitkeep
+
+# --- Scripts (deployment only, not runtime container) ---
+scripts/
+
+# --- Documentation ---
+*.md
+docs/
+
+# --- Docker files themselves ---
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+
+# --- TLS / Secrets (mounted at runtime) ---
+docker/certs/
+secrets/
+*.pem
+*.key
+
+# --- Environment (runtime-provided) ---
+.env
+.env.*
+!.env.example
+
+# --- Flow diagrams (source of truth is separate repo for ops) ---
+flujo.mmd
+
+# --- Composer caches (runtime builds from multi-stage) ---
+vendor/
+composer.lock

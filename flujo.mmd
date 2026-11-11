@@ -1,0 +1,141 @@
+%% REMTYS — Diagrama de flujo general end-to-end
+%% Generado a partir del código fuente
+%% Ver con: extensión "Markdown Preview Mermaid Support" o "Mermaid Editor" en VSCode
+
+flowchart TD
+    %% =========== ENTRADA ===========
+    Start([Usuario abre<br/>/remtysapp/public]) --> Router{Front controller<br/>public/index.php<br/>CSP + security headers<br/>startSecureSession}
+    Router -->|¿sesión válida?| SesionCheck{isLoggedIn?}
+    SesionCheck -->|No| Landing[home/index<br/>bienvenida]
+    Landing --> AuthMenu{Acción}
+    AuthMenu -->|Login| LoginView[auth/login]
+    AuthMenu -->|Registro| RegView[auth/registro]
+    AuthMenu -->|Verificar email| VerifEmail[auth/verificar_email<br/>token=SHA256]
+
+    %% =========== REGISTRO ===========
+    RegView --> RegPost{POST procesar_registro<br/>CSRF + rate-limit<br/>5/10min}
+    RegPost -->|Valida nombre, email,<br/>password fuerte,<br/>RFC, CP, detalle persona| RegValid{¿Datos OK?}
+    RegValid -->|No| RegView
+    RegValid -->|Sí| RegDup{¿Email o RFC<br/>duplicado?}
+    RegDup -->|Sí| RegView
+    RegDup -->|No| RegTx[(TX: INSERT usuarios<br/>bcrypt cost 12 +<br/>INSERT contribuyentes +<br/>detalle fisica/moral)]
+    RegTx --> SendMail[enviarCorreoVerificacion<br/>token 64 hex + expires_at]
+    SendMail --> LoginView
+
+    %% =========== VERIFICACIÓN EMAIL ===========
+    VerifEmail --> TokenOK{¿Token válido,<br/>no vencido,<br/>no usado?}
+    TokenOK -->|No| LoginView
+    TokenOK -->|Sí| ActivarCuenta[(UPDATE email_verificado=TRUE<br/>audit: EMAIL_VERIFIED)]
+    ActivarCuenta --> LoginView
+
+    %% =========== LOGIN ===========
+    LoginView --> LoginPost{POST procesar_login<br/>CSRF + rate-limit<br/>20/15min IP}
+    LoginPost --> UserExists{¿Email existe<br/>y activo=TRUE?}
+    UserExists -->|No| FlashErr[Credenciales incorrectas]
+    FlashErr --> LoginView
+    UserExists -->|Sí| Bloqueo{¿bloqueado_hasta<br/>> NOW?}
+    Bloqueo -->|Sí| LoginView
+    Bloqueo -->|No| PwdCheck{¿password_verify?}
+    PwdCheck -->|No| Intentos[intentos_fallidos++<br/>si >= 5 bloqueo 30m<br/>generarAlerta CUENTA_BLOQUEADA]
+    Intentos --> LoginView
+    PwdCheck -->|Sí| EmailVer{¿email_verificado?}
+    EmailVer -->|No| Reenviar[Link reenviar verificación<br/>ultimo_envio_verificacion_at]
+    Reenviar --> LoginView
+    EmailVer -->|Sí| LoginOK[(session_regenerate_id<br/>reset intentos + ultimo_acceso<br/>audit: LOGIN_EXITOSO)]
+
+    %% =========== DISPATCHER POR ROL ===========
+    LoginOK --> RolSwitch{Rol}
+    SesionCheck -->|Sí| RolSwitch
+    RolSwitch -->|contribuyente| DashContrib
+    RolSwitch -->|admin / revisor / supergod| DashAdmin
+
+    %% =========== PORTAL CONTRIBUYENTE ===========
+    DashContrib[contribuyente/dashboard<br/>resumen predios, docs,<br/>trámites, saldo]
+    DashContrib --> ContribMenu{Módulo}
+    ContribMenu -->|Perfil| Perfil[perfil/editar_perfil<br/>datos persona + domicilio]
+    ContribMenu -->|Predios| Predios[predios + nuevo/editar<br/>predio_contribuyente.activo]
+    ContribMenu -->|Documentos| MisDocs[documentos<br/>sólo versiones activas]
+    ContribMenu -->|Expedientes| Expedientes[expedientes + ver_expediente<br/>historial_expediente]
+    ContribMenu -->|Trámites| Tramites[tramites + nuevo_tramite]
+
+    %% ALTA DE TRÁMITE
+    Tramites --> NuevoT{POST nuevo_tramite<br/>CSRF}
+    NuevoT -->|Ownership predio<br/>predio_contribuyente| ValidaPredio{¿Tipo trámite<br/>y predio OK?}
+    ValidaPredio -->|No| Tramites
+    ValidaPredio -->|Sí| CrearExp[(ExpedienteService<br/>crearExpedienteConTramite<br/>TX atómica<br/>historial: CREACION)]
+    CrearExp --> ReqsTram
+
+    %% REQUISITOS (núcleo del sistema)
+    ReqsTram[requisitos_tramite<br/>RequisitosService.evaluarRequisitos] --> ClasifLoop{Para cada requisito<br/>aplica clasificacionCandidata}
+    ClasifLoop --> ClasifEstado{Documento mejor candidato}
+    ClasifEstado -->|CUMPLE / REUTILIZABLE| ReqOK[Badge verde/dorado<br/>no requiere subir]
+    ClasifEstado -->|PENDIENTE| ReqPend[Badge gris<br/>esperando validación]
+    ClasifEstado -->|VENCIDO| ReqVenc[Badge naranja<br/>re-subir]
+    ClasifEstado -->|INVALIDO rechazado| ReqInv[Badge rojo<br/>corregir + nueva versión]
+    ClasifEstado -->|FALTANTE/ESPECIFICO/EXCLUSIVO| ReqFalta[Badge gris/vino/negro<br/>subir]
+    ReqOK & ReqPend & ReqVenc & ReqInv & ReqFalta --> CalcComp[calcularCompletitud<br/>aprobados + en_revision<br/>listo_para_envio =<br/>aprobados >= oblig y oblig > 0]
+    CalcComp --> Subir{¿Subir documento?}
+
+    %% CARGA DOCUMENTAL
+    Subir -->|Sí| SubirForm[subir_documento<br/>contexto via GET<br/>tramite_id + tipo_doc_id + expediente_id]
+    SubirForm --> SubirPost{POST<br/>CSRF + rate 20/5min<br/>ownership exp/trámite}
+    SubirPost --> ValArchivo{Validación<br/>archivo}
+    ValArchivo -->|MIME/ext/size/upload_err| ValArchivoErr[Flash error]
+    ValArchivoErr --> SubirForm
+    ValArchivo -->|OK| CalcSha[subirDocumento helper<br/>hash SHA-256<br/>nombre aleatorio<br/>move_uploaded_file]
+    CalcSha --> RegDoc[(DocumentoService<br/>registrarDocumento<br/>estado=pendiente<br/>si padre: version+1)]
+    RegDoc --> VincularExp[(vincularDocumentoExpediente<br/>uso='requisito')]
+    VincularExp --> ReqsTram
+
+    %% ENVÍO EXPLÍCITO (puerta a revisión)
+    Subir -->|No / listo| GateEnvio{listo_para_envio?}
+    GateEnvio -->|No| ReqsTram
+    GateEnvio -->|Sí| EstadoEnvio[(UPDATE tramites<br/>estado='en_revision'<br/>historial: ENVIO)]
+
+    %% =========== BACKOFFICE ===========
+    DashAdmin[admin/dashboard<br/>métricas reales] --> AdminMenu{Módulo}
+    AdminMenu -->|Contribuyentes| CRUDContrib[CRUD contribuyentes]
+    AdminMenu -->|Predios| CRUDPredios[CRUD predios]
+    AdminMenu -->|Expedientes| CRUDExp[CRUD expedientes]
+    AdminMenu -->|Trámites| CRUDTram[CRUD trámites<br/>ver_tramite]
+    AdminMenu -->|Validación docs| Valida[validacion_docs<br/>bandeja pendientes]
+    AdminMenu -->|Catálogos| Catal[tipos_tramite,<br/>tipos_documento,<br/>requisitos]
+    AdminMenu -->|Fiscal| Fiscal[periodos,<br/>obligaciones, pagos,<br/>aplicar_pago]
+    AdminMenu -->|Inspecciones| Insp[CRUD inspecciones]
+    AdminMenu -->|Dependencias| Deps[DEPENDE_DE<br/>DFS cycle-check]
+    AdminMenu -->|Historial/Reportes| Hist[historial + reportes]
+
+    %% VALIDACIÓN
+    Valida --> ValDoc{POST validar_documento<br/>CSRF + rol admin/revisor}
+    ValDoc --> ValRes{resultado ∈<br/>aprobado/rechazado/en_revision}
+    ValRes -->|Inválido| Valida
+    ValRes -->|OK| RegVal[(TX: INSERT validaciones_documento<br/>+ UPDATE documentos.estado_validacion<br/>audit: DOCUMENTO_VALIDADO)]
+    RegVal --> SyncReq[Reclasificación automática<br/>en RequisitosService<br/>en todos los expedientes vinculados]
+    SyncReq --> NotifCont[Contribuyente ve<br/>cambio al entrar a<br/>requisitos_tramite]
+
+    %% SUBSANACIÓN
+    NotifCont --> SubsanCheck{¿Doc rechazado<br/>o con observaciones?}
+    SubsanCheck -->|Sí| ReqsTram
+    SubsanCheck -->|No| Dict
+
+    %% DICTAMEN
+    Dict[admin/editar_tramite<br/>cambio estado final] --> Final{Estado final}
+    Final -->|aprobado| Aprob[UPDATE tramites='aprobado'<br/>expediente='resuelto'<br/>historial: DICTAMEN]
+    Final -->|rechazado| Rech[UPDATE='rechazado'<br/>historial: DICTAMEN_RECHAZO]
+    Final -->|cancelado| Canc[UPDATE='cancelado']
+    Aprob & Rech & Canc --> Fin([Notificación + cierre])
+
+    %% =========== TRANSVERSALES ===========
+    Router -.audit.-> Audit[(auditLog<br/>AUTH/ADMIN/SISTEMA/<br/>MAIL/ERROR)]
+    LoginPost & RegPost & SubirPost & ValDoc -.audit.-> Audit
+    SesionCheck -.idle 30m /<br/>abs 8h.-> Timeout[sesion expirada]
+    Timeout --> LoginView
+
+    classDef error fill:#fde2e2,stroke:#c0392b,color:#7d1d1d
+    classDef ok fill:#d5f5e3,stroke:#239b56,color:#145a32
+    classDef sec fill:#fdebd0,stroke:#b9770e,color:#7e5109
+    classDef db fill:#e8daef,stroke:#6c3483,color:#4a235a
+    class FlashErr,Intentos,Bloqueo,ValArchivoErr,Rech error
+    class LoginOK,ActivarCuenta,Aprob,ReqOK ok
+    class Router,NuevoT,SubirPost,ValDoc,RegPost,LoginPost sec
+    class RegTx,CrearExp,RegDoc,RegVal,EstadoEnvio db

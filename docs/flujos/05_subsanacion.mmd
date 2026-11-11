@@ -1,0 +1,26 @@
+%% REMTYS — Subdiagrama: Prevención / Subsanación (rechazo reenvío)
+flowchart TD
+    A([Documento rechazado<br/>por admin]) --> B[RequisitosService<br/>marca INVALIDO]
+    B --> C[Contribuyente entra al sistema]
+    C --> D{Dashboard /<br/>requisitos_tramite}
+    D --> E[Ver badge rojo<br/>+ observaciones del validador<br/>validaciones_documento.observaciones]
+    E --> F{Acción del contribuyente}
+    F -->|Click corregir| G[subir_documento<br/>padre_doc_id = doc rechazado]
+    G --> H[Flujo carga documental]
+    H --> I[Nueva versión:<br/>version = padre.version + 1<br/>es_version_activa padre=FALSE<br/>nueva es_version_activa=TRUE<br/>estado='pendiente']
+    I --> J[RequisitosService vuelve a<br/>PENDIENTE rank=70]
+    J --> K[Vuelve a bandeja admin]
+    K --> L[Nueva validación]
+    L --> M{resultado}
+    M -->|aprobado| N[CUMPLE listo]
+    M -->|rechazado| O[Repite ciclo]
+    O --> E
+    M -->|en_revision| P[Admin pide más info]
+    P --> E
+
+    F -->|Ignorar| Q[Trámite queda<br/>estado 'documentacion_pendiente'<br/>sin avanzar]
+
+    classDef warn fill:#fef9e7,stroke:#b7950b
+    classDef err fill:#fde2e2,stroke:#c0392b
+    class E,O,Q warn
+    class A,B err

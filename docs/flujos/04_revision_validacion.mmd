@@ -1,0 +1,31 @@
+%% REMTYS — Subdiagrama: Revisión / Validación interna (admin/revisor)
+flowchart TD
+    A([admin/revisor login]) --> B[admin/dashboard<br/>métricas]
+    B --> C[validacion_docs<br/>requireAdminORevisor]
+    C --> D[DocumentoService.<br/>getDocumentosPendientes<br/>estado='pendiente'<br/>es_version_activa=TRUE]
+    D --> E[Render bandeja:<br/>doc + contrib + RFC +<br/>tipo + fecha]
+    E --> F{Acción}
+    F -->|Previsualizar| F1[ver_documento<br/>servirDocumento inline<br/>audit DOC_VISTO_ADMIN]
+    F -->|Validar| G[POST validar_documento<br/>verificarCSRF]
+    G --> H{resultado ∈<br/>aprobado / rechazado /<br/>en_revision}
+    H -->|Inválido| H1[Flash error]
+    H -->|OK| I[DocumentoService.<br/>registrarValidacion<br/>BEGIN TX]
+    I --> I1[(INSERT validaciones_documento<br/>validador_id, resultado, obs)]
+    I1 --> I2[(UPDATE documentos<br/>estado_validacion=resultado)]
+    I2 --> I3[COMMIT<br/>audit DOCUMENTO_VALIDADO]
+    I3 --> J{resultado}
+    J -->|aprobado| K[Reclasificación automática<br/>RequisitosService pasa a CUMPLE<br/>en todos los expedientes vinculados]
+    J -->|rechazado| L[RequisitosService marca INVALIDO<br/>contribuyente debe subir nueva versión]
+    J -->|en_revision| M[Queda en bandeja<br/>mayor investigación]
+    K --> N[Actualiza % completitud<br/>habilita envío]
+    L --> O[Notifica en dashboard<br/>contribuyente ve observaciones]
+    M --> C
+
+    %% Transición de trámite
+    N --> P{¿todos los obligatorios<br/>aprobados?}
+    P -->|Sí| Q[Admin puede dictaminar<br/>editar_tramite estado=aprobado]
+    P -->|No| C
+
+    F -->|Ver trámite| R[ver_tramite<br/>datos + requisitos +<br/>documentos + historial]
+    R --> F
+    F -->|Cambiar estado| S[editar_tramite<br/>UPDATE tramites.estado<br/>historial_expediente<br/>CAMBIO_ESTADO]

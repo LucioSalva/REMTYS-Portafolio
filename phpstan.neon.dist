@@ -1,0 +1,17 @@
+parameters:
+    level: 5
+    paths:
+        - app/services
+        - app/helpers
+        - app/src
+        - app/controllers
+        - database/migrate.php
+    excludePaths:
+        - app/views/*
+        - vendor/*
+        - tests/_output/*
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors:
+        # Helpers que se cargan vía files autoload: phpstan no ve las definiciones en runtime
+        - identifier: function.notFound
+          message: '#Function (auditLog|requireRol|requireContribuyente|requireAdmin|requireSuperGod|isLoggedIn|verificarCSRF|csrfToken|flash|getFlash|setFlash|sanitizarTexto|contribuyenteActualId|startSecureSession|loginUsuario|logoutUsuario|subirDocumento|servirDocumento|validarEntornoProduccion|enviarMail) not found#

@@ -1,0 +1,2 @@
+# Apache 2.4 — deny all direct access to configuration files
+Require all denied
